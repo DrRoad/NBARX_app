@@ -71,6 +71,9 @@ fun_x_pos <- function(x,gam){
   pmax(x%*%gam,0)
 }
 
+# fun_x_poly_time <- function(x,gam){
+#   pmax(gam[2]*(x[,1]-gam[1])+gam[3]*(x[,1]-gam[1])^2,0)
+# }
 
 IHS <- function(x,theta) log(theta*x+sqrt((theta*x)^2+1))/theta
 
@@ -308,8 +311,7 @@ repam.inv.PARX <- function(theta,p,q,k_x,neg_par=F){
   } 
 }
 
-loglike.PARX <- function(gamma,p,q,y,x,fun_x,neg_par=F,print.par=F){
-  k_x <- if(is.vector(x)) 1 else dim(x)[2]
+loglike.PARX <- function(gamma,p,q,y,x,k_x,fun_x,neg_par=F,print.par=F){
   theta <- repam.PARX(gamma,p,q,k_x,neg_par)
   if(print.par) print(theta)
   par <- PARX.par(theta,p,q,k_x)
@@ -336,8 +338,7 @@ loglike.PARX <- function(gamma,p,q,y,x,fun_x,neg_par=F,print.par=F){
   -sum(llikecontr,na.rm=T)/N
 }
 
-filter.PARX <- function(theta,p,q,y,x,fun_x,conf=.90,zoo=F,h=0,for.time=NULL){   
-  k_x <- if(is.vector(x)) 1 else dim(x)[2]
+filter.PARX <- function(theta,p,q,y,x,k_x,fun_x,conf=.90,zoo=F,h=0,for.time=NULL){   
   par <- PARX.par(theta,p,q,k_x)
   omega <- par$omega
   alpha <- par$alpha
@@ -563,16 +564,18 @@ filter.NBAR <- function(theta,p,q,y,conf=.90,zoo=F,h=0,for.time=NULL){
 
 # NBARX model
 # -----------
-par.vec2list.NBARX <- NBARX.par <- function(theta,p,q,k_x){
+par.vec2list.NBARX <- NBARX.par <- function(theta,p,q,k_x,k_trend){
   list(
     "omega" = theta[1],
     "alpha" = theta[2:(1+p)],
     "beta"  = theta[(2+p):(1+p+q)],
-    "gam_x" = theta[(2+p+q):(1+p+q+k_x)],
-    "nu" = theta[2+p+q+k_x],
+    "gam_x" = if(k_x==0) NULL else theta[(2+p+q):(1+p+q+k_x)],
+    "gam_trend" = if(k_trend==0) NULL else theta[(2+p+q+k_x):(1+p+q+k_x+k_trend)],
+    "nu" = theta[2+p+q+k_x+k_trend],
     "p" = p,
     "q" = q,
-    "k_x" = k_x
+    "k_x" = k_x,
+    "k_trend"=k_trend
     )
 }
 
@@ -609,68 +612,84 @@ sim.NBARX <- function(N,theta,p,q,x,fun_x,seed=123,lambda.out=F){
 }
 
 
-repam.NBARX <- function(gamma,p,q,k_x,neg_par=F){
+repam.NBARX <- function(gamma,p,q,k_x,k_trend,neg_par=F){
   if(neg_par){
     theta_par <- c(exp(gamma[1]),(1/(1+exp(-gamma[2:(1+p+q)]))-1/2)*2)
-    gam_x <- gamma[(2+p+q):(1+p+q+k_x)]
-    nu <- exp(gamma[2+p+q+k_x])
-    c(theta_par, gam_x, nu)
+    gam_x <- if(k_x==0) NULL else  gamma[(2+p+q):(1+p+q+k_x)]
+    gam_trend <- if(k_trend==0) NULL else gamma[(2+p+q+k_x):(1+p+q+k_x+k_trend)]
+    nu <- exp(gamma[2+p+q+k_x+k_trend])
+    c(theta_par, gam_x, gam_trend, nu)
   } else {
     theta_par <- exp(gamma[1:(1+p+q)])
-    gam_x <- gamma[(2+p+q):(1+p+q+k_x)]
-    nu <- exp(gamma[2+p+q+k_x])
-    c(theta_par, gam_x, nu)
+    gam_x <- if(k_x==0) NULL else gamma[(2+p+q):(1+p+q+k_x)]
+    gam_trend <- if(k_trend==0) NULL else exp(gamma[(2+p+q+k_x):(1+p+q+k_x+k_trend)])
+    nu <- exp(gamma[2+p+q+k_x+k_trend])
+    c(theta_par, gam_x, gam_trend, nu)
   }
 } 
 
-repam.inv.NBARX <- function(theta,p,q,k_x,neg_par=F){
+repam.inv.NBARX <- function(theta,p,q,k_x,k_trend,neg_par=F){
   if(neg_par){
     gamma_par <- c(log(theta[1]),-log(1/(theta[2:(1+p+q)]*0.5 + 0.5) - 1))
-    gam_x <- theta[(2+p+q):(1+p+q+k_x)]
-    nu_inv <- log(theta[2+p+q+k_x])
-    c(gamma_par, gam_x, nu_inv)
+    gam_x <- if(k_x==0) NULL else theta[(2+p+q):(1+p+q+k_x)]
+    gam_trend <- if(k_trend==0) NULL else theta[(2+p+q+k_x):(1+p+q+k_x+k_trend)]
+    nu_inv <- log(theta[2+p+q+k_x+k_trend])
+    c(gamma_par, gam_x, gam_trend, nu_inv)
   } else {
     gamma_par <- log(theta[1:(1+p+q)])
-    gam_x <- theta[(2+p+q):(1+p+q+k_x)]
-    nu_inv <- log(theta[2+p+q+k_x])
-    c(gamma_par, gam_x, nu_inv)
+    gam_x <- if(k_x==0) NULL else theta[(2+p+q):(1+p+q+k_x)]
+    gam_trend <- if(k_trend==0) NULL else log(theta[(2+p+q+k_x):(1+p+q+k_x+k_trend)])
+    nu_inv <- log(theta[2+p+q+k_x+k_trend])
+    c(gamma_par, gam_x, gam_trend, nu_inv)
   }
 } 
 
-loglike.NBARX <- function(gamma,p,q,y,x,fun_x,neg_par=F,print.par=F){
-  k_x <- if(is.vector(x)) 1 else dim(x)[2]
-  theta <- repam.NBARX(gamma,p,q,k_x,neg_par)
+loglike.NBARX <- function(gamma,p,q,y,x,k_x,fun_x=NULL,trend,k_trend,fun_trend=NULL,neg_par=F,print.par=F){
+  theta <- repam.NBARX(gamma,p,q,k_x,k_trend,neg_par)
   if(print.par) print(theta)
-  par <- NBARX.par(theta,p,q,k_x)
+  par <- NBARX.par(theta,p,q,k_x,k_trend)
   omega <- par$omega
   alpha <- par$alpha
   beta  <- par$beta
   gam_x <- par$gam_x
+  gam_trend <- par$gam_trend
   nu <- par$nu
   lag_max <- max(p,q)
   
   N <- length(y)
   
   lambda <- c(y[1:lag_max],rep(NA,N-lag_max))
-  fx <- fun_x(x,gam_x)
-  llikecontr <- c(rep(0,lag_max),rep(NA,N-lag_max))
+  
+  if(is.null(fun_x) | is.null(gam_x)){
+    fx <- rep(0,N)
+  } else {
+    fx <- fun_x(x, gam_x)  
+  }
+  
+  if(is.null(fun_trend)| is.null(gam_trend)){
+    ftrend <- 0
+  } else {
+    ftrend <- fun_trend(trend, gam_trend)
+  }
+  # llikecontr <- c(rep(0,lag_max),rep(NA,N-lag_max))
   
   for(t in (lag_max+1):N){
     lambda[t] <- omega + alpha%*%y[(t-1):(t-p)] + beta%*%lambda[(t-1):(t-q)] + fx[t] 
-    llikecontr[t] <- log(max(dnbinom(y[t],mu=lambda[t],size=nu),10^-8))
     #if(llikecontr[t]==-Inf) {print(c(lambda[t],llikecontr[t],t))}
   }
+  mu <- lambda + ftrend
+  llikecontr <- log(pmax(dnbinom(y,mu=mu,size=nu),10^-8))
   #if(-sum(llikecontr)==-Inf){0} else {if(-sum(llikecontr)==Inf){50000} else {-sum(llikecontr)} }
   -sum(llikecontr)/N
 }
 
-filter.NBARX <- function(theta,p,q,y,x,fun_x,conf=.90,zoo=F, h=0,for.time=NULL){   
-  k_x <- if(is.vector(x)) 1 else dim(x)[2]
-  par <- NBARX.par(theta,p,q,k_x)
+filter.NBARX <- function(theta,p,q,y,x,k_x,fun_x,trend,k_trend,fun_trend,conf=.90,zoo=F, h=0,for.time=NULL){   
+  par <- NBARX.par(theta,p,q,k_x,k_trend)
   omega <- par$omega
   alpha <- par$alpha
   beta  <- par$beta
   gam_x <- par$gam_x
+  gam_trend <- par$gam_trend
   nu <- par$nu
   lag_max <- max(p,q)
   
@@ -684,18 +703,35 @@ filter.NBARX <- function(theta,p,q,y,x,fun_x,conf=.90,zoo=F, h=0,for.time=NULL){
   l.conf <- h.conf <- matrix(NA,N,length(conf))
   colnames(l.conf) <- colnames(h.conf) <- conf
   lambda.hat[1:lag_max] <- y[1:lag_max]
-  fx <- fun_x(x,gam_x)
+  
+  if(is.null(fun_x) | is.null(gam_x)){
+    fx <- rep(0,N+h)
+  } else {
+    fx <- fun_x(x, gam_x)  
+  }
+  
+  if(is.null(fun_trend)| is.null(gam_trend)){
+    ftrend <- rep(0,N+h)
+  } else {
+    ftrend <- fun_trend(trend, gam_trend)
+  }
+  # print(fx)
   
   for(t in (lag_max+1):N){
     lambda.hat[t] <- omega + alpha%*%y[(t-1):(t-p)] + beta%*%lambda.hat[(t-1):(t-q)] + fx[t]
-    delta.hat[t] <- lambda.hat[t]^2/nu
-    l.conf[t,] <- qnbinom((1-conf)/2,mu=lambda.hat[t],size=nu)
-    h.conf[t,] <- qnbinom(1-(1-conf)/2,mu=lambda.hat[t],size=nu)
   }
+  
+  mu.hat <- lambda.hat + ftrend
+  delta.hat <- mu.hat^2/nu
+  l.conf <- qnbinom((1-conf)/2,mu=mu.hat,size=nu)
+  h.conf <- qnbinom(1-(1-conf)/2,mu=mu.hat,size=nu)
+  
   if(zoo){
     lambda.hat <- zoo(lambda.hat,order.by=y_time)
     delta.hat <- zoo(delta.hat,order.by=y_time)
+    mu.hat <- zoo(mu.hat,order.by=y_time)
     fx <- zoo(fx,order.by=y_time)
+    ftrend <- zoo(ftrend,order.by=y_time)
     l.conf <- zoo(l.conf,order.by=y_time)
     h.conf <- zoo(h.conf,order.by=y_time)
   }
@@ -703,11 +739,15 @@ filter.NBARX <- function(theta,p,q,y,x,fun_x,conf=.90,zoo=F, h=0,for.time=NULL){
   
   # Forecast
   for.lambda.hat <- NULL
+  for.mu.hat <- NULL
   for.l.conf <- NULL
   for.h.conf <- NULL
   if(h>0){
     shift <- lag_max + 1 
     for.lambda.hat <- rep(NA,h+shift)
+    for.ftrend <- ftrend
+    for.fx <- fx
+    for.mu.hat <- rep(NA,h+shift)  
     for.lambda.hat[1:shift] <- lambda.hat[(N-shift+1):N]
     for.l.conf <- for.h.conf <- matrix(NA,h,length(conf))
     for(t in shift:(shift+h)){
@@ -715,24 +755,26 @@ filter.NBARX <- function(theta,p,q,y,x,fun_x,conf=.90,zoo=F, h=0,for.time=NULL){
       foo_y <- y[(N+t-1-shift):(N+t-p-shift)]
       foo_y[is.na(foo_y)] <- 0
       foo_lambda <- for.lambda.hat[(t-1):(t-p)]
-      for.lambda.hat[t] <- omega + alpha%*%((1-lam_ind)*foo_y+lam_ind*foo_lambda) + beta%*%for.lambda.hat[(t-1):(t-q)] + fx[t]
+      for.lambda.hat[t] <- omega + alpha%*%((1-lam_ind)*foo_y+lam_ind*foo_lambda) + beta%*%for.lambda.hat[(t-1):(t-q)] + for.fx[t]
       for.l.conf[t-shift,] <- qnbinom((1-conf)/2,for.lambda.hat[t], size=nu)
       for.h.conf[t-shift,] <- qnbinom(1-(1-conf)/2,for.lambda.hat[t], size=nu)
     }
     for.lambda.hat <- for.lambda.hat[shift:(shift+h)]
+    for.mu.hat <- for.lambda.hat + for.ftrend[shift:(shift+h)]
     if(zoo){
       # for.time <- seq(y_time[N], y_time[N]+h*30, by = "month")
       for.lambda.hat <- zoo(for.lambda.hat,order.by=for.time)
+      for.mu.hat <- zoo(for.mu.hat,order.by=for.time)
       for.l.conf <- zoo(for.l.conf,order.by=for.time)
       for.h.conf <- zoo(for.h.conf,order.by=for.time)
     }
   }
   
   
-  delta.hat[1:lag_max] <- lambda.hat[1:lag_max] <- NA
+  delta.hat[1:lag_max] <- lambda.hat[1:lag_max] <- mu.hat[1:lag_max] <- NA
 
-  list("lambda.hat"=lambda.hat,"fx"=fx,"delta.hat"=delta.hat,"l.conf"=l.conf,"h.conf"=h.conf,
-       "for.lambda.hat"=for.lambda.hat,"for.l.conf"=for.l.conf,"for.h.conf"=for.h.conf)
+  list("lambda.hat"=lambda.hat,"mu.hat"=mu.hat,"fx"=fx,"ftrend"=ftrend,"delta.hat"=delta.hat,"l.conf"=l.conf,"h.conf"=h.conf,
+       "for.lambda.hat"=for.lambda.hat,"for.mu.hat"=for.mu.hat,"for.l.conf"=for.l.conf,"for.h.conf"=for.h.conf)
 }
 
 

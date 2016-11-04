@@ -234,6 +234,7 @@ sec_since_market_open_y <- function(y_no_na, exchange_hours){
   morning_indic <- c(1,find_mornings(time_diff))
   morning_counter <- cumsum(morning_indic)
   sec_since_market_open <- time(y_no_na) - exchange_hours$open_time[morning_counter]
+  units(sec_since_market_open) <- "secs"
   return(as.numeric(sec_since_market_open))
 }
 
@@ -243,6 +244,7 @@ sec_since_market_open_time  <- function(time_of_y, exchange_hours){
   morning_indic <- c(1,find_mornings(time_diff))
   morning_counter <- cumsum(morning_indic)
   sec_since_market_open <- time_of_y - exchange_hours$open_time[morning_counter]
+  units(sec_since_market_open) <- "secs"
   return(as.numeric(sec_since_market_open))
 }
 
