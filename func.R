@@ -71,6 +71,7 @@ fun_x_pos <- function(x,gam){
   pmax(x%*%gam,0)
 }
 
+
 IHS <- function(x,theta) log(theta*x+sqrt((theta*x)^2+1))/theta
 
 
@@ -235,7 +236,8 @@ filter.PAR <- function(theta,p,q,y,conf=.90,zoo=F,h=0,for.time=NULL){
 
 # PARX model - Rahbek (forthcoming)
 # ---------------------------------
-PARX.par <- function(theta,p,q,k_x){
+
+par.vec2list.PARX <- PARX.par <- function(theta,p,q,k_x){
   list(
   "omega" = theta[1],
   "alpha" = theta[2:(1+p)],
@@ -334,7 +336,7 @@ loglike.PARX <- function(gamma,p,q,y,x,fun_x,neg_par=F,print.par=F){
   -sum(llikecontr,na.rm=T)/N
 }
 
-filter.PARX <- function(theta,p,q,y,x,fun_x,conf=.90,zoo=F){   
+filter.PARX <- function(theta,p,q,y,x,fun_x,conf=.90,zoo=F,h=0,for.time=NULL){   
   k_x <- if(is.vector(x)) 1 else dim(x)[2]
   par <- PARX.par(theta,p,q,k_x)
   omega <- par$omega
@@ -365,8 +367,38 @@ filter.PARX <- function(theta,p,q,y,x,fun_x,conf=.90,zoo=F){
     l.conf <- zoo(l.conf,order.by=y_time)
     h.conf <- zoo(h.conf,order.by=y_time)
   }
+  
+  # Forecast
+  for.lambda.hat <- NULL
+  for.l.conf <- NULL
+  for.h.conf <- NULL
+  if(h>0){
+    shift <- lag_max + 1 
+    for.lambda.hat <- rep(NA,h+shift)
+    for.lambda.hat[1:shift] <- lambda.hat[(N-shift+1):N]
+    for.l.conf <- for.h.conf <- matrix(NA,h,length(conf))
+    for(t in shift:(shift+h)){
+      lam_ind  <- (t-1):(t-p)>shift
+      foo_y <- y[(N+t-1-shift):(N+t-p-shift)]
+      foo_y[is.na(foo_y)] <- 0
+      foo_lambda <- for.lambda.hat[(t-1):(t-p)]
+      for.lambda.hat[t] <- omega + alpha%*%((1-lam_ind)*foo_y+lam_ind*foo_lambda) + beta%*%for.lambda.hat[(t-1):(t-q)] + fx[t]
+      for.l.conf[t-shift,] <- qpois((1-conf)/2,for.lambda.hat[t])
+      for.h.conf[t-shift,] <- qpois(1-(1-conf)/2,for.lambda.hat[t])
+    }
+    for.lambda.hat <- for.lambda.hat[shift:(shift+h)]
+    if(zoo){
+      # for.time <- seq(y_time[N], y_time[N]+h*30, by = "month")
+      for.lambda.hat <- zoo(for.lambda.hat,order.by=for.time)
+      for.l.conf <- zoo(for.l.conf,order.by=for.time)
+      for.h.conf <- zoo(for.h.conf,order.by=for.time)
+    }
+  }
+  
+  
   lambda.hat[1:lag_max] <- NA
-  list("lambda.hat"=lambda.hat,"fx"=fx,"l.conf"=l.conf,"h.conf"=h.conf)
+  list("lambda.hat"=lambda.hat,"l.conf"=l.conf,"h.conf"=h.conf,
+       "for.lambda.hat"=for.lambda.hat,"for.l.conf"=for.l.conf,"for.h.conf"=for.h.conf)
 }
 
 # NBAR model - Christou & Fokianos (2014)
@@ -531,7 +563,7 @@ filter.NBAR <- function(theta,p,q,y,conf=.90,zoo=F,h=0,for.time=NULL){
 
 # NBARX model
 # -----------
-NBARX.par <- function(theta,p,q,k_x){
+par.vec2list.NBARX <- NBARX.par <- function(theta,p,q,k_x){
   list(
     "omega" = theta[1],
     "alpha" = theta[2:(1+p)],
@@ -632,7 +664,7 @@ loglike.NBARX <- function(gamma,p,q,y,x,fun_x,neg_par=F,print.par=F){
   -sum(llikecontr)/N
 }
 
-filter.NBARX <- function(theta,p,q,y,x,fun_x,conf=.90,zoo=F){   
+filter.NBARX <- function(theta,p,q,y,x,fun_x,conf=.90,zoo=F, h=0,for.time=NULL){   
   k_x <- if(is.vector(x)) 1 else dim(x)[2]
   par <- NBARX.par(theta,p,q,k_x)
   omega <- par$omega
@@ -667,9 +699,40 @@ filter.NBARX <- function(theta,p,q,y,x,fun_x,conf=.90,zoo=F){
     l.conf <- zoo(l.conf,order.by=y_time)
     h.conf <- zoo(h.conf,order.by=y_time)
   }
-  delta.hat[1:lag_max] <- lambda.hat[1:lag_max] <- NA
+
   
-  list("lambda.hat"=lambda.hat,"fx"=fx,"delta.hat"=delta.hat,"l.conf"=l.conf,"h.conf"=h.conf)
+  # Forecast
+  for.lambda.hat <- NULL
+  for.l.conf <- NULL
+  for.h.conf <- NULL
+  if(h>0){
+    shift <- lag_max + 1 
+    for.lambda.hat <- rep(NA,h+shift)
+    for.lambda.hat[1:shift] <- lambda.hat[(N-shift+1):N]
+    for.l.conf <- for.h.conf <- matrix(NA,h,length(conf))
+    for(t in shift:(shift+h)){
+      lam_ind  <- (t-1):(t-p)>shift
+      foo_y <- y[(N+t-1-shift):(N+t-p-shift)]
+      foo_y[is.na(foo_y)] <- 0
+      foo_lambda <- for.lambda.hat[(t-1):(t-p)]
+      for.lambda.hat[t] <- omega + alpha%*%((1-lam_ind)*foo_y+lam_ind*foo_lambda) + beta%*%for.lambda.hat[(t-1):(t-q)] + fx[t]
+      for.l.conf[t-shift,] <- qnbinom((1-conf)/2,for.lambda.hat[t], size=nu)
+      for.h.conf[t-shift,] <- qnbinom(1-(1-conf)/2,for.lambda.hat[t], size=nu)
+    }
+    for.lambda.hat <- for.lambda.hat[shift:(shift+h)]
+    if(zoo){
+      # for.time <- seq(y_time[N], y_time[N]+h*30, by = "month")
+      for.lambda.hat <- zoo(for.lambda.hat,order.by=for.time)
+      for.l.conf <- zoo(for.l.conf,order.by=for.time)
+      for.h.conf <- zoo(for.h.conf,order.by=for.time)
+    }
+  }
+  
+  
+  delta.hat[1:lag_max] <- lambda.hat[1:lag_max] <- NA
+
+  list("lambda.hat"=lambda.hat,"fx"=fx,"delta.hat"=delta.hat,"l.conf"=l.conf,"h.conf"=h.conf,
+       "for.lambda.hat"=for.lambda.hat,"for.l.conf"=for.l.conf,"for.h.conf"=for.h.conf)
 }
 
 
@@ -820,7 +883,7 @@ sim.conf <- function(alpha=0.05,eps=0.0001,M=1000,n=200,dist="normal",df=12){
 }
 
 # Q-Q plot function
-qq_plot <- function(x,dist="normal",grid=F,conf=NULL,mark=FALSE,alpha=0.05,plot="new",ylim=NULL,xlim=NULL,asp=NA,...){
+qq_plot <- function(x,dist="normal",grid=F,conf=NULL,mark=FALSE,alpha=0.05,plot="new",ylim=NULL,xlim=NULL,asp=NA,main=NULL,...){
   x <- coredata(x)
   x <- x[!is.na(x)]
   x <- x[x>-Inf & x<Inf]
@@ -845,7 +908,7 @@ qq_plot <- function(x,dist="normal",grid=F,conf=NULL,mark=FALSE,alpha=0.05,plot=
   
   if(plot == "new"){
     par(mar=c(4,4,4,1))
-    plot(q,x,type="n",xlab=xlab,ylab="Empirical quantiles",xlim=xlim,ylim=ylim,asp=asp)
+    plot(q,x,type="n",xlab=xlab,ylab="Empirical quantiles",xlim=xlim,ylim=ylim,asp=asp,main=main)
     if(grid) grid()
     lines(q,q,col="#969696")
     points(q,x,...)

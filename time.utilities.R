@@ -151,15 +151,21 @@ plot.time <- function(x1,x2=NULL,x3=NULL,x4=NULL,x5=NULL,x6=NULL,x7=NULL,x8=NULL
   if(legd){legend(posx,posy,l.text,lwd=lwd,lty=lty,pch=pch,col=col.vec,xjust=xjust,yjust=yjust,cex=l.cex,bg="white")}
 }
 
+find_mornings  <- function(time_diff) {
+  time_diff>9*3600   # Indicator for opening hours. Time points with greater distance than 9 hours. 
+}
+
+
 # Function for removing overnight space
 no_overnight_space <- function(t,space=0.5*3600){
   d <- diff(t)
   if(class(d)=="difftime") units(d) <- "secs"
   d <- c(0,d) # measuring time difference between each observation assuming POSIXct timestamp
-  open_indic <- d>9*3600   # Indicator for opening hours. Time points with greater distance than 9 hours. 
-  d[open_indic] <- space   # Market openings are assigned almost zero time distance. (30min per default)
+  mornings_indic <- find_mornings(d)
+  d[mornings_indic] <- space   # Market openings are assigned almost zero time distance. (30min per default)
   cumsum(d)                # New time index is produced by cumulating the corrected time diff's. 
 }
+
 
 plot.intra.xcord <- function(x){
   no_overnight_space(time(x))
@@ -222,6 +228,23 @@ get.yahoo.name <- function(symb="^DJI"){
 }
 # library(zoo)
 # library(xts)
+sec_since_market_open_y <- function(y_no_na, exchange_hours){
+  time_diff <- diff(time(y_no_na)) # Removing NA since last observation is at closing time with NA-value
+  if(class(time_diff)=="difftime") units(time_diff) <- "secs"
+  morning_indic <- c(1,find_mornings(time_diff))
+  morning_counter <- cumsum(morning_indic)
+  sec_since_market_open <- time(y_no_na) - exchange_hours$open_time[morning_counter]
+  return(as.numeric(sec_since_market_open))
+}
+
+sec_since_market_open_time  <- function(time_of_y, exchange_hours){
+  time_diff <- diff(time_of_y) # Removing NA since last observation is at closing time with NA-value
+  if(class(time_diff)=="difftime") units(time_diff) <- "secs"
+  morning_indic <- c(1,find_mornings(time_diff))
+  morning_counter <- cumsum(morning_indic)
+  sec_since_market_open <- time_of_y - exchange_hours$open_time[morning_counter]
+  return(as.numeric(sec_since_market_open))
+}
 
 get.yahoo.intraday <- function(ticker='novo-b.co',days=2,var='volume'){
   str_url <- paste0("http://chartapi.finance.yahoo.com/instrument/2.0/",ticker,"/chartdata;type=quote;range=",days,"d/csv")
@@ -240,16 +263,16 @@ get.yahoo.intraday <- function(ticker='novo-b.co',days=2,var='volume'){
                    stringsAsFactors = F)[,var]
   
   if(days>1){
-    ex_hours <- read.table(text=info[info$V1=="range",'V2'],sep=",")[,2:3]
+    exchange_hours <- read.table(text=info[info$V1=="range",'V2'],sep=",")[,2:3]
   } else {
-    ex_hours <- read.table(text=info[info$V1=="Timestamp",'V2'],sep=",")
+    exchange_hours <- read.table(text=info[info$V1=="Timestamp",'V2'],sep=",")
   }
-  names(ex_hours) <- c("open_time","close_time")
-  open_close_time <- sort(c(ex_hours$open_time,ex_hours$close_time))
+  names(exchange_hours) <- c("open_time","close_time")
+  open_close_time <- sort(c(exchange_hours$open_time,exchange_hours$close_time))
   open_close_vals <- zoo(NA,order.by = time.fun(open_close_time,tz=time_info))
   
-  ex_hours$open_time <- time.fun(ex_hours$open_time,time_info)
-  ex_hours$close_time <- time.fun(ex_hours$close_time,time_info)
+  exchange_hours$open_time <- time.fun(exchange_hours$open_time,time_info)
+  exchange_hours$close_time <- time.fun(exchange_hours$close_time,time_info)
 
   # Adding NA's at opening times for the exchange
   y <- as.zoo(merge(as.xts(y),as.xts(open_close_vals)))$as.xts.y # Work-around for keeping time zones
@@ -257,7 +280,8 @@ get.yahoo.intraday <- function(ticker='novo-b.co',days=2,var='volume'){
   time_range <- read.table(text=info[info$V1=="Timestamp",'V2'],sep=",",col.names = c("start","end"),stringsAsFactors = F)
   time_range <- lapply(time_range,function(x) time.fun(x,time_info))
   return(list("y"=y,"info"=info,
-              "ex_hours"=ex_hours,
+              "sec_since_market_open"=sec_since_market_open_y(na.omit(y), exchange_hours),
+              "ex_hours"=exchange_hours,
               "time_info"=time_info,
               "name"=name,
               "time_range"=time_range,
