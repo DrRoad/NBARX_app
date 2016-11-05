@@ -2,6 +2,8 @@ library(shiny)
 library(shinyjs)
 library(quantmod)
 library(RColorBrewer)
+library(timeDate)
+library(lubridate)
 
 source("func.R")
 source("time.utilities.R")

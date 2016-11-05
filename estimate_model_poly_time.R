@@ -2,29 +2,34 @@ rm(list=ls())
 setwd('/home/christian/Dropbox/Speciale/shinyapps/NBARXintraapp')
 source('global.R')
 
-data <- get.yahoo.intraday(ticker='^GSPC', days=5)
+days <- 10
+data <- get.yahoo.intraday(ticker='GOOG', days=days)
 m <- 10^floor(log10(max(data$y,na.rm=T)))/100
 data$y <- round(data$y/m)
+y_med <- median(data$y, na.rm=T)
 
 plot(data$y)
 plot(data$sec_since_market_open)
 
 fun_trend_poly_time <- function(trend,gam){
-  pmax(gam[1] + gam[2]*(trend[,1]-14400)+gam[3]*(trend[,2]-14400)^2+gam[4]*(trend[,2]-14400)^4,0)
+  pmax(gam[1]*(trend-14400)+gam[2]*(trend-14400)^2+gam[3]*(trend-14400)^4,0)
 }
 
+fun_x_poly_time <- function(x,gam){
+  pmax(gam[1] + 2*gam[2]*(x-14400),0)
+}
 
 p <- 1
 q <- 1
 
 y <- coredata(na.omit(data$y))
-trend <- cbind(data$sec_since_market_open,data$sec_since_market_open)
+trend <- data$sec_since_market_open
 
-a0 <- 100
-a1 <- 10^-3
-a2 <- 10^-7
-a3 <- 10^-18
-gam_trend0 <- c(a0,a1,a2,a3)
+a0 <- y_med/10
+a1 <- (y_med/1000000)
+a2 <- (y_med/10000000)^2
+a3 <- (y_med/100000)^4
+gam_trend0 <- c(a1,a2,a3)
 plot(y)
 lines(fun_trend_poly_time(trend,gam_trend0),lwd=3,col='red')
 
@@ -53,30 +58,30 @@ theta <- repam.NBARX(gamma=optim.out$par,p,q,k_x=0,k_trend=k_trend,neg_par=F)
 
 plot(y)
 lines(fun_trend_poly_time(trend,gam_trend0),lwd=3,col='red')
-lines(fun_trend_poly_time(trend,theta[4:7]),lwd=3,col='blue')
+lines(fun_trend_poly_time(trend,theta[4:6]),lwd=3,col='blue')
 
 y <- na.omit(data$y)
-window_range <- c(start(data$y),end(data$y))
-forecast_time <- seq(end(y),window_range[2],by="300 secs")
-forecast_trend  <- sec_since_market_open_time(forecast_time,data$ex_hours)
-h <- length(forecast_time)
 
-trend_for <- rbind(trend,cbind(forecast_trend,forecast_trend))
+
+window_range <- c(start(data$y),next_bizdays(data$ex_hours[days,'close_time'],n_days=2))
+forecast_time <- seq_only_bizhours(end(y),window_range[2],by="300 secs",data$ex_hours[1,])
+forecast_trend  <- time_of_day_sec(forecast_time) - time_of_day_sec(data$ex_hours[1,'open_time'])
 
 filt_out <- filter.NBARX(theta,p,q,y,
                          x=NULL,k_x=0,fun_x=NULL,
-                         trend=trend_for,k_trend=k_trend,fun_trend=fun_trend_poly_time,
-                         conf=.90,zoo=T,h=h,for.time=forecast_time)
+                         trend=trend,for.trend=forecast_trend,k_trend=k_trend,fun_trend=fun_trend_poly_time,
+                         conf=.90,zoo=T,for.time=forecast_time)
 
-forecast_shift <- max( no_overnight_space(time(na.omit(data$y))) )
-plot(filt_out$ftrend)
 
-plot.intra(data$y,data$ex_hours,type='l')
+# forecast_shift <- max(no_overnight_space(time(na.omit(data$y))) )
+# plot(filt_out$ftrend)
+date_end <- end(filt_out$for.lambda.hat)
+plot.intra(data$y,data$ex_hours,date_end,type='l')
 plot.intra(filt_out$lambda.hat,data$ex_hours, new=F,col='red')
 plot.intra(filt_out$mu.hat,data$ex_hours, new=F,col='blue')
 
-plot.intra(filt_out$for.lambda.hat,new=F,x_shift=forecast_shift,lty=2,lwd=2,col=col_vec[1]) 
-plot.intra(filt_out$for.mu.hat,new=F,x_shift=forecast_shift,lty=2,lwd=2,col=col_vec[1]) 
-plot.intra(filt_out$for.l.conf,new=F,x_shift=forecast_shift,lty=2,lwd=1,col=col_vec[1])
-plot.intra(filt_out$for.h.conf,new=F,x_shift=forecast_shift,lty=2,lwd=1,col=col_vec[1])
+plot.intra(filt_out$for.lambda.hat,new=F,lty=2,lwd=2,col=col_vec[1]) 
+plot.intra(filt_out$for.mu.hat,new=F,lty=2,lwd=2,col=col_vec[1]) 
+plot.intra(filt_out$for.l.conf,new=F,lty=2,lwd=1,col=col_vec[1])
+plot.intra(filt_out$for.h.conf,new=F,lty=2,lwd=1,col=col_vec[1])
 
